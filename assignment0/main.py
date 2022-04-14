@@ -10,6 +10,8 @@ import torch.onnx
 import data
 import model
 
+import matplotlib.pyplot as plt
+
 parser = argparse.ArgumentParser(
     description='PyTorch Wikitext-2 RNN/LSTM/GRU/Transformer Language Model')
 parser.add_argument('--data', type=str, default='./data/wikitext-2',
@@ -164,6 +166,7 @@ def evaluate(data_source):
 
 def train():
     # Turn on training mode which enables dropout.
+    epoch_loss = 0.
     model.train()
     total_loss = 0.
     start_time = time.time()
@@ -193,6 +196,8 @@ def train():
 
         if batch % args.log_interval == 0 and batch > 0:
             cur_loss = total_loss / args.log_interval
+            epoch_loss = cur_loss
+            batch_loss.append(cur_loss)
             elapsed = time.time() - start_time
             print('| epoch {:3d} | {:5d}/{:5d} batches | lr {:02.2f} | ms/batch {:5.2f} | '
                   'loss {:5.2f} | ppl {:8.2f}'.format(
@@ -202,6 +207,7 @@ def train():
             start_time = time.time()
         if args.dry_run:
             break
+    return epoch_loss
 
 
 def export_onnx(path, batch_size, seq_len):
@@ -217,6 +223,7 @@ def export_onnx(path, batch_size, seq_len):
 # Loop over epochs.
 lr = args.lr
 best_val_loss = None
+batch_loss = []
 
 # At any point you can hit Ctrl + C to break out of training early.
 try:
@@ -224,15 +231,14 @@ try:
     validation_loss = []
     for epoch in range(1, args.epochs+1):
         epoch_start_time = time.time()
-        train()
+        train_loss.append(train())
         val_loss = evaluate(val_data)
+        validation_loss.append(val_loss)
         print('-' * 89)
         print('| end of epoch {:3d} | time: {:5.2f}s | valid loss {:5.2f} | '
               'valid ppl {:8.2f}'.format(epoch, (time.time() - epoch_start_time),
                                          val_loss, math.exp(val_loss)))
         print('-' * 89)
-
-        validation_loss.append(val_loss)
 
         # Save the model if the validation loss is the best we've seen so far.
         if not best_val_loss or val_loss < best_val_loss:
@@ -242,6 +248,7 @@ try:
         else:
             # Anneal the learning rate if no improvement has been seen in the validation dataset.
             lr /= 4.0
+
 except KeyboardInterrupt:
     print('-' * 89)
     print('Exiting from training early')
@@ -261,6 +268,20 @@ print('=' * 89)
 print('| End of training | test loss {:5.2f} | test ppl {:8.2f}'.format(
     test_loss, math.exp(test_loss)))
 print('=' * 89)
+
+x = range(len(batch_loss))
+plt.xlabel("batches")
+plt.ylabel("train_loss")
+plt.plot(x, batch_loss)
+plt.savefig("batch_loss.png")
+
+x = range(len(train_loss))
+plt.xlabel("epochs")
+plt.ylabel("losses")
+plt.plot(x, train_loss, label="train_loss")
+plt.plot(x, validation_loss, label="val_loss")
+plt.legend()
+plt.savefig("epoch_loss.png")
 
 if len(args.onnx_export) > 0:
     # Export the model in ONNX format.
